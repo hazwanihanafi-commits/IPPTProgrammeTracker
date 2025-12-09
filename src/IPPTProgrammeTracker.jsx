@@ -4,8 +4,9 @@ import React, { useState, useMemo, useEffect } from"react";
 const GOOGLE_CLIENT_ID = "24521575326-4hni7mkmiut33lidfaqo9aksf9b1g164.apps.googleusercontent.com";
 const DRIVE_FOLDER_ID = "1sYLzlypBed420jNele6qaGB0O-1s7nXK";
 
-// ---- React imports restored ----
-import React, { useState, useMemo, useEffect } from "react";
+// ---- Google Drive Config ----
+const GOOGLE_CLIENT_ID = "24521575326-4hni7mkmiut33lidfaqo9aksf9b1g164.apps.googleusercontent.com";
+const DRIVE_FOLDER_ID = "1sYLzlypBed420jNele6qaGB0O-1s7nXK"; "react";
 
 // ---- Config ----
 const PHASES = [
