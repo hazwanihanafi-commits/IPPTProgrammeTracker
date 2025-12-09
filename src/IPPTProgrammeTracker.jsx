@@ -344,6 +344,94 @@ const PROGRAMS = [
     label: "Pinjam",
   },
 ];
+// ---- Google Drive helpers ----
+
+// wait until GIS script is ready
+function waitForGoogle() {
+  return new Promise((resolve, reject) => {
+    let attempts = 0;
+    const maxAttempts = 20;
+
+    function check() {
+      attempts += 1;
+      if (window.google && window.google.accounts && window.google.accounts.oauth2) {
+        resolve(window.google.accounts.oauth2);
+      } else if (attempts >= maxAttempts) {
+        reject(new Error("Google Identity Services not loaded"));
+      } else {
+        setTimeout(check, 300);
+      }
+    }
+
+    check();
+  });
+}
+
+async function getAccessToken() {
+  const oauth2 = await waitForGoogle();
+
+  return new Promise((resolve, reject) => {
+    let tokenClient = window._ipptTokenClient;
+
+    if (!tokenClient) {
+      tokenClient = oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: "https://www.googleapis.com/auth/drive.file",
+        callback: (tokenResponse) => {
+          if (tokenResponse && tokenResponse.access_token) {
+            resolve(tokenResponse.access_token);
+          } else {
+            reject(new Error("No access token received"));
+          }
+        },
+      });
+      window._ipptTokenClient = tokenClient;
+    }
+
+    tokenClient.requestAccessToken({ prompt: "" });
+  });
+}
+
+function buildDriveFileName(programme, originalName) {
+  const safeName = programme.name.replace(/[^\w\- ()]/g, "_");
+  return `[${programme.no}] ${safeName} - ${originalName}`;
+}
+
+async function uploadFileToDrive(programme, file) {
+  const accessToken = await getAccessToken();
+
+  const metadata = {
+    name: buildDriveFileName(programme, file.name),
+    mimeType: file.type || "application/octet-stream",
+    parents: [DRIVE_FOLDER_ID],
+  };
+
+  const form = new FormData();
+  form.append(
+    "metadata",
+    new Blob([JSON.stringify(metadata)], { type: "application/json" })
+  );
+  form.append("file", file);
+
+  const res = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+    {
+      method: "POST",
+      headers: { Authorization: "Bearer " + accessToken },
+      body: form,
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error("Drive upload failed:", text);
+    throw new Error("Drive upload failed");
+  }
+
+  const data = await res.json();
+  // View link – sharing in Drive must allow intended users to access
+  return `https://drive.google.com/file/d/${data.id}/view`;
+}
 
 function computeProgress(statusByPhase) {
   if (!statusByPhase) return 0;
