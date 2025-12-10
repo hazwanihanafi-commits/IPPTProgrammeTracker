@@ -1,4 +1,139 @@
+/* global gapi, google */
 import React, { useState, useMemo, useEffect } from "react";
+
+/* ============================================================
+   GOOGLE DRIVE CONFIG (Picker / Frontend-only)
+   - Make sure index.html includes:
+   <script src="https://accounts.google.com/gsi/client" async defer></script>
+   <script src="https://apis.google.com/js/api.js" async defer></script>
+===============================================================*/
+
+const GOOGLE_CLIENT_ID =
+  "24521575326-4hni7mkmiut33lidfaqo9aksf9b1g164.apps.googleusercontent.com";
+const GOOGLE_API_KEY = "AIzaSyAFyUx9-w3uShMkr1wwJyIBQ1dvvzQSTkg";
+const DRIVE_FOLDER_ID = "1sYLzlypBed420jNele6qaGB0O-1s7nXK";
+
+// Upload sections (category B: by process, not per item)
+const UPLOAD_SECTIONS = [
+  {
+    key: "advisor",
+    label: "A. Penasihat Luar & Semakan Kurikulum (Q1)",
+  },
+  {
+    key: "ce",
+    label: "B. Curriculum Evaluation (CE) & Penilai Luar (Q2)",
+  },
+  {
+    key: "srr",
+    label: "C. SRR & Audit APP (Q3–Q4)",
+  },
+];
+
+// GAPI / Picker helpers
+let gapiLoaded = false;
+let pickerLoaded = false;
+let tokenClient = null;
+
+function loadGapi() {
+  return new Promise((resolve, reject) => {
+    if (gapiLoaded && pickerLoaded) return resolve();
+
+    function check() {
+      if (window.gapi && window.google) {
+        window.gapi.load("client:picker", async () => {
+          try {
+            await window.gapi.client.init({
+              apiKey: GOOGLE_API_KEY,
+              discoveryDocs: [
+                "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
+              ],
+            });
+            gapiLoaded = true;
+            pickerLoaded = true;
+            resolve();
+          } catch (err) {
+            console.error("Failed to init gapi client", err);
+            reject(err);
+          }
+        });
+      } else {
+        setTimeout(check, 400);
+      }
+    }
+    check();
+  });
+}
+
+function getAccessToken() {
+  return new Promise(async (resolve, reject) => {
+    try {
+      await loadGapi();
+    } catch (e) {
+      return reject(e);
+    }
+
+    if (!tokenClient) {
+      const oauth2 = window.google.accounts.oauth2;
+      tokenClient = oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        // NOTE: domain restriction to @usm.my should also be configured
+        // in Google Cloud Console (allowed users / workspace domain).
+        scope: "https://www.googleapis.com/auth/drive.file",
+        callback: (tokenResponse) => {
+          if (tokenResponse && tokenResponse.access_token) {
+            resolve(tokenResponse.access_token);
+          } else {
+            reject(new Error("No access token from Google"));
+          }
+        },
+      });
+    }
+
+    tokenClient.requestAccessToken({ prompt: "" });
+  });
+}
+
+async function openDrivePicker(programme, section, onPicked) {
+  try {
+    const accessToken = await getAccessToken();
+
+    const view = new window.google.picker.DocsUploadView()
+      .setIncludeFolders(false)
+      .setParent(DRIVE_FOLDER_ID);
+
+    const picker = new window.google.picker.PickerBuilder()
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(GOOGLE_API_KEY)
+      .addView(view)
+      .setTitle(
+        `Upload dokumen – ${programme.name} (${section.label.replace(
+          /^A\. |^B\. |^C\. /,
+          ""
+        )})`
+      )
+      .setCallback((data) => {
+        if (data.action === window.google.picker.Action.PICKED) {
+          const docs = data.docs || [];
+          const mapped = docs.map((d) => ({
+            id: d.id,
+            name: d.name,
+            mimeType: d.mimeType,
+            size: d.sizeBytes,
+            url: `https://drive.google.com/file/d/${d.id}/view`,
+          }));
+          onPicked(mapped);
+        }
+      })
+      .build();
+
+    picker.setVisible(true);
+  } catch (err) {
+    console.error("Error opening Google Picker", err);
+    alert(
+      "Google Drive tidak dapat diakses sekarang. Pastikan anda login akaun @usm.my dan refresh semula."
+    );
+  }
+}
 
 /* ============================================================
    CONFIG: Phases, Status, Checklists, Programmes
@@ -26,13 +161,13 @@ const PHASES = [
 const STATUS_OPTIONS = ["Not started", "In progress", "Completed", "Not required"];
 
 const STATUS_STYLES = {
-  "Not started": "bg-slate-200 text-slate-700 border-slate-300",
-  "In progress": "bg-amber-200 text-amber-900 border-amber-300",
-  Completed: "bg-emerald-300 text-emerald-900 border-emerald-400",
-  "Not required": "bg-slate-100 text-slate-600 border-slate-200",
+  "Not started": "bg-rose-100 text-rose-800 border-rose-200",
+  "In progress": "bg-amber-100 text-amber-800 border-amber-200",
+  Completed: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  "Not required": "bg-slate-100 text-slate-700 border-slate-200",
 };
 
-// ---- Checklist template per PIC (task-based) ----
+// ---- Checklist template per PIC ----
 const CHECKLIST_TEMPLATE = [
   "Semak kurikulum dalaman (CLO/PLO/MQF)",
   "Lantik penasihat luar",
@@ -596,6 +731,7 @@ export default function IPPTProgrammeTracker() {
   const [checklistStates, setChecklistStates] = useState({});
   const [uploadedFiles, setUploadedFiles] = useState({});
   const [srrChecklist, setSrrChecklist] = useState({});
+  const [driveFiles, setDriveFiles] = useState({});
   const [search, setSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("all");
 
@@ -606,11 +742,13 @@ export default function IPPTProgrammeTracker() {
       const savedChecklist = localStorage.getItem("ipptChecklistStates");
       const savedFiles = localStorage.getItem("ipptUploadedFiles");
       const savedSRR = localStorage.getItem("ipptSrrCoppaChecklist");
+      const savedDrive = localStorage.getItem("ipptDriveFiles");
 
       const defaultProg = {};
       const defaultChecklist = {};
       const defaultFiles = {};
       const defaultSRR = {};
+      const defaultDrive = {};
 
       PROGRAMS.forEach((p) => {
         defaultProg[p.id] = {
@@ -622,6 +760,11 @@ export default function IPPTProgrammeTracker() {
         defaultChecklist[p.id] = CHECKLIST_TEMPLATE.map(() => false);
         defaultFiles[p.id] = [];
         defaultSRR[p.id] = Array(SRR_TOTAL_ITEMS).fill(false);
+        defaultDrive[p.id] = {
+          advisor: [],
+          ce: [],
+          srr: [],
+        };
       });
 
       setProgrammeStates(
@@ -637,6 +780,9 @@ export default function IPPTProgrammeTracker() {
       );
       setSrrChecklist(
         savedSRR ? { ...defaultSRR, ...JSON.parse(savedSRR) } : defaultSRR
+      );
+      setDriveFiles(
+        savedDrive ? { ...defaultDrive, ...JSON.parse(savedDrive) } : defaultDrive
       );
     } catch (error) {
       console.error("Failed to load saved IPPT tracker state", error);
@@ -669,7 +815,10 @@ export default function IPPTProgrammeTracker() {
         JSON.stringify(srrChecklist)
       );
     }
-  }, [programmeStates, checklistStates, uploadedFiles, srrChecklist]);
+    if (Object.keys(driveFiles).length) {
+      localStorage.setItem("ipptDriveFiles", JSON.stringify(driveFiles));
+    }
+  }, [programmeStates, checklistStates, uploadedFiles, srrChecklist, driveFiles]);
 
   const owners = useMemo(() => {
     const set = new Set(PROGRAMS.map((p) => p.owner));
@@ -686,6 +835,46 @@ export default function IPPTProgrammeTracker() {
     const matchOwner = ownerFilter === "all" || p.owner === ownerFilter;
     return matchSearch && matchOwner;
   });
+
+  // Summary metrics for dashboard
+  const summary = useMemo(() => {
+    if (!PROGRAMS.length) {
+      return {
+        total: 0,
+        avgPhase: 0,
+        avgSRR: 0,
+        atRisk: 0,
+      };
+    }
+
+    let totalPhase = 0;
+    let totalSrr = 0;
+    let atRisk = 0;
+
+    PROGRAMS.forEach((p) => {
+      const statusObj =
+        programmeStates[p.id] ||
+        PHASES.reduce(
+          (acc, phase) => ({ ...acc, [phase.key]: "Not started" }),
+          {}
+        );
+      totalPhase += computeProgress(statusObj);
+
+      const srrArray =
+        srrChecklist[p.id] || Array(SRR_TOTAL_ITEMS).fill(false);
+      const sp = computeSrrProgress(srrArray);
+      totalSrr += sp;
+      if (sp < 50) atRisk += 1;
+    });
+
+    const total = PROGRAMS.length;
+    return {
+      total,
+      avgPhase: Math.round(totalPhase / total),
+      avgSRR: Math.round(totalSrr / total),
+      atRisk,
+    };
+  }, [programmeStates, srrChecklist]);
 
   const handleStatusChange = (programmeId, phaseKey, newStatus) => {
     setProgrammeStates((prev) => ({
@@ -757,6 +946,39 @@ export default function IPPTProgrammeTracker() {
     });
   };
 
+  const handleDriveUploadClick = (programme, section) => {
+    openDrivePicker(programme, section, (newFiles) => {
+      setDriveFiles((prev) => {
+        const existingProgram =
+          prev[programme.id] || { advisor: [], ce: [], srr: [] };
+
+        return {
+          ...prev,
+          [programme.id]: {
+            ...existingProgram,
+            [section.key]: [...(existingProgram[section.key] || []), ...newFiles],
+          },
+        };
+      });
+    });
+  };
+
+  const handleDriveDelete = (programmeId, sectionKey, index) => {
+    setDriveFiles((prev) => {
+      const programFiles =
+        prev[programmeId] || { advisor: [], ce: [], srr: [] };
+      const sectionFiles = programFiles[sectionKey] || [];
+      const updatedSection = sectionFiles.filter((_, i) => i !== index);
+      return {
+        ...prev,
+        [programmeId]: {
+          ...programFiles,
+          [sectionKey]: updatedSection,
+        },
+      };
+    });
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       {/* Header */}
@@ -767,7 +989,8 @@ export default function IPPTProgrammeTracker() {
               IPPT Programme Accreditation Tracker 2026
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              Pantau status Penasihat Luar, CE, SRR dan Audit APP bagi 20 program.
+              Pantau status Penasihat Luar, CE, SRR dan Audit APP bagi program
+              IPPT & program pinjam.
             </p>
           </div>
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
@@ -793,6 +1016,73 @@ export default function IPPTProgrammeTracker() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* DASHBOARD SUMMARY */}
+        <section className="grid md:grid-cols-3 gap-4">
+          <div className="bg-white border rounded-2xl shadow-sm p-4 flex flex-col justify-between">
+            <div className="text-xs font-semibold text-slate-500 uppercase">
+              Bilangan Program
+            </div>
+            <div className="mt-2 flex items-end justify-between">
+              <div className="text-3xl font-bold text-slate-900">
+                {summary.total}
+              </div>
+              <div className="text-xs text-slate-500">
+                Termasuk program pinjam & OWN IPPT
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white border rounded-2xl shadow-sm p-4">
+            <div className="text-xs font-semibold text-slate-500 uppercase">
+              Purata Progress Fasa 2026
+            </div>
+            <div className="flex items-center justify-between mt-2 mb-1">
+              <div className="text-2xl font-bold text-emerald-700">
+                {summary.avgPhase}%
+              </div>
+              <span className="inline-flex px-2 py-1 rounded-full text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-100">
+                Q1–Q4 Status
+              </span>
+            </div>
+            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-400 transition-all"
+                style={{ width: `${summary.avgPhase}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="bg-white border rounded-2xl shadow-sm p-4">
+            <div className="text-xs font-semibold text-slate-500 uppercase">
+              Purata SRR COPPA Readiness
+            </div>
+            <div className="flex items-center justify-between mt-2 mb-1">
+              <div className="text-2xl font-bold text-indigo-700">
+                {summary.avgSRR}%
+              </div>
+              <span
+                className={`inline-flex px-2 py-1 rounded-full text-[11px] border ${
+                  summary.avgSRR >= 80
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                    : summary.avgSRR >= 50
+                    ? "bg-amber-50 text-amber-700 border-amber-100"
+                    : "bg-rose-50 text-rose-700 border-rose-100"
+                }`}
+              >
+                {summary.avgSRR >= 80
+                  ? "On Track"
+                  : summary.avgSRR >= 50
+                  ? "Perlu Pemantauan"
+                  : "Berisiko"}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Program berisiko (SRR &lt; 50%):{" "}
+              <span className="font-semibold">{summary.atRisk}</span>
+            </p>
+          </div>
+        </section>
+
         {/* Legend */}
         <section className="bg-white rounded-2xl shadow-sm border p-4 text-xs md:text-sm flex flex-wrap gap-6">
           <div>
@@ -806,16 +1096,16 @@ export default function IPPTProgrammeTracker() {
           <div>
             <div className="font-semibold mb-1">Status Fasa</div>
             <div className="flex flex-wrap gap-2">
-              <span className="px-2 py-1 rounded-full bg-slate-200 text-slate-700 text-[11px]">
+              <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-800 text-[11px] border border-rose-200">
                 Not started
               </span>
-              <span className="px-2 py-1 rounded-full bg-amber-200 text-amber-900 text-[11px]">
+              <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800 text-[11px] border border-amber-200">
                 In progress
               </span>
-              <span className="px-2 py-1 rounded-full bg-emerald-300 text-emerald-900 text-[11px]">
+              <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[11px] border border-emerald-200">
                 Completed
               </span>
-              <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-700 text-[11px]">
+              <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-700 text-[11px] border border-slate-200">
                 Not required
               </span>
             </div>
@@ -836,6 +1126,12 @@ export default function IPPTProgrammeTracker() {
             const files = uploadedFiles[p.id] || [];
             const srrArray =
               srrChecklist[p.id] || Array(SRR_TOTAL_ITEMS).fill(false);
+            const drive = driveFiles[p.id] || {
+              advisor: [],
+              ce: [],
+              srr: [],
+            };
+
             const progress = computeProgress(statusObj);
             const srrProgress = computeSrrProgress(srrArray);
 
@@ -860,7 +1156,7 @@ export default function IPPTProgrammeTracker() {
                       </div>
                     )}
                   </div>
-                  <div className="text-right text-xs text-slate-500">
+                  <div className="text-right text-xs text-slate-500 max-w-[50%]">
                     <div className="font-medium text-slate-700">PIC</div>
                     <div>{p.pic || "-"}</div>
                     {p.team?.length > 0 && (
@@ -890,10 +1186,8 @@ export default function IPPTProgrammeTracker() {
                 <div className="space-y-2">
                   {PHASES.map((phase) => (
                     <div key={phase.key} className="flex flex-col gap-1">
-                      <div className="flex justify-between items-center">
-                        <div className="text-[11px] font-medium text-slate-700">
-                          {phase.label}
-                        </div>
+                      <div className="text-[11px] font-medium text-slate-700">
+                        {phase.label}
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {STATUS_OPTIONS.map((s) => (
@@ -919,11 +1213,11 @@ export default function IPPTProgrammeTracker() {
                   ))}
                 </div>
 
-                {/* Upload documents */}
+                {/* Upload documents (local only) */}
                 <div className="border-t pt-3 mt-2">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-[11px] font-semibold text-slate-700">
-                      Dokumen Berkaitan (rekod tempatan)
+                      Upload Tempatan (fail tidak ke Drive)
                     </div>
                   </div>
                   <input
@@ -933,7 +1227,7 @@ export default function IPPTProgrammeTracker() {
                     onChange={(e) => handleFileUpload(p.id, e)}
                   />
                   {files.length > 0 && (
-                    <ul className="mt-2 space-y-1 max-h-24 overflow-y-auto pr-1 text-[11px] text-slate-600">
+                    <ul className="mt-2 space-y-1 max-h-20 overflow-y-auto pr-1 text-[11px] text-slate-600">
                       {files.map((f, idx) => (
                         <li
                           key={idx}
@@ -954,9 +1248,82 @@ export default function IPPTProgrammeTracker() {
                     </ul>
                   )}
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Nota: Fail tidak di-upload ke server; senarai ini hanya
-                    disimpan dalam pelayar ini.
+                    Hanya untuk rujukan pantas di pelayar ini (tidak di-upload
+                    ke Google Drive).
                   </p>
+                </div>
+
+                {/* GOOGLE DRIVE UPLOADS */}
+                <div className="border-t pt-3 mt-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-[11px] font-semibold text-sky-800">
+                      Dokumen Google Drive (Folder IPPT)
+                    </div>
+                    <span className="text-[10px] text-slate-500">
+                      Upload guna akaun <span className="font-semibold">@usm.my</span>
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {UPLOAD_SECTIONS.map((sec) => (
+                      <button
+                        key={sec.key}
+                        type="button"
+                        className="text-[10px] px-2 py-1 rounded-full border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                        onClick={() => handleDriveUploadClick(p, sec)}
+                      >
+                        Upload {sec.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+                    {UPLOAD_SECTIONS.map((sec) => {
+                      const sectionFiles = drive[sec.key] || [];
+                      if (!sectionFiles.length) return null;
+                      return (
+                        <div key={sec.key} className="mb-1">
+                          <div className="text-[10px] font-semibold text-slate-700 mb-0.5">
+                            {sec.label}
+                          </div>
+                          <ul className="space-y-0.5 text-[10px] text-slate-600">
+                            {sectionFiles.map((f, idx) => (
+                              <li
+                                key={f.id + idx}
+                                className="flex items-center justify-between gap-2"
+                              >
+                                <a
+                                  href={f.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="underline truncate hover:text-sky-700"
+                                >
+                                  • {f.name}
+                                </a>
+                                <button
+                                  type="button"
+                                  className="text-[9px] px-1.5 py-0.5 border rounded-full text-red-600 border-red-200 hover:bg-red-50"
+                                  onClick={() =>
+                                    handleDriveDelete(p.id, sec.key, idx)
+                                  }
+                                >
+                                  Buang
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })}
+                    {!drive.advisor.length &&
+                      !drive.ce.length &&
+                      !drive.srr.length && (
+                        <p className="text-[10px] text-slate-400">
+                          Tiada dokumen Google Drive direkodkan lagi untuk
+                          program ini.
+                        </p>
+                      )}
+                  </div>
                 </div>
 
                 {/* PIC Checklist */}
