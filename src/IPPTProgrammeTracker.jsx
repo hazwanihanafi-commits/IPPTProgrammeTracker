@@ -1,11 +1,8 @@
-/* global gapi, google */
+/* global google */
 import React, { useState, useMemo, useEffect } from "react";
 
 /* ============================================================
    GOOGLE DRIVE CONFIG (Picker / Frontend-only)
-   - Make sure index.html includes:
-   <script src="https://accounts.google.com/gsi/client" async defer></script>
-   <script src="https://apis.google.com/js/api.js" async defer></script>
 ===============================================================*/
 
 const GOOGLE_CLIENT_ID =
@@ -13,7 +10,6 @@ const GOOGLE_CLIENT_ID =
 const GOOGLE_API_KEY = "AIzaSyAFyUx9-w3uShMkr1wwJyIBQ1dvvzQSTkg";
 const DRIVE_FOLDER_ID = "1sYLzlypBed420jNele6qaGB0O-1s7nXK";
 
-// Upload sections (category B: by process, not per item)
 const UPLOAD_SECTIONS = [
   {
     key: "advisor",
@@ -21,7 +17,7 @@ const UPLOAD_SECTIONS = [
   },
   {
     key: "ce",
-    label: "B. Curriculum Evaluation (CE) & Penilai Luar (Q2)",
+    label: "B. CE & Penilai Luar (Q2)",
   },
   {
     key: "srr",
@@ -29,18 +25,14 @@ const UPLOAD_SECTIONS = [
   },
 ];
 
-// GAPI / Picker helpers
-let gapiLoaded = false;
 let pickerLoaded = false;
 let tokenClient = null;
 
-function loadGapi() {
+function loadPickerAndClient() {
   return new Promise((resolve, reject) => {
-    if (gapiLoaded && pickerLoaded) return resolve();
-
-    function check() {
-      if (window.gapi && window.google) {
-        window.gapi.load("client:picker", async () => {
+    function checkReady() {
+      if (window.google && window.google.picker && window.gapi) {
+        window.gapi.load("client", async () => {
           try {
             await window.gapi.client.init({
               apiKey: GOOGLE_API_KEY,
@@ -48,42 +40,39 @@ function loadGapi() {
                 "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
               ],
             });
-            gapiLoaded = true;
             pickerLoaded = true;
             resolve();
           } catch (err) {
-            console.error("Failed to init gapi client", err);
+            console.error("GAPI init failed", err);
             reject(err);
           }
         });
       } else {
-        setTimeout(check, 400);
+        setTimeout(checkReady, 300);
       }
     }
-    check();
+    if (pickerLoaded) return resolve();
+    checkReady();
   });
 }
 
 function getAccessToken() {
   return new Promise(async (resolve, reject) => {
     try {
-      await loadGapi();
+      await loadPickerAndClient();
     } catch (e) {
       return reject(e);
     }
 
     if (!tokenClient) {
-      const oauth2 = window.google.accounts.oauth2;
-      tokenClient = oauth2.initTokenClient({
+      tokenClient = window.google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
-        // NOTE: domain restriction to @usm.my should also be configured
-        // in Google Cloud Console (allowed users / workspace domain).
         scope: "https://www.googleapis.com/auth/drive.file",
         callback: (tokenResponse) => {
           if (tokenResponse && tokenResponse.access_token) {
             resolve(tokenResponse.access_token);
           } else {
-            reject(new Error("No access token from Google"));
+            reject(new Error("Tiada access token"));
           }
         },
       });
@@ -97,14 +86,14 @@ async function openDrivePicker(programme, section, onPicked) {
   try {
     const accessToken = await getAccessToken();
 
-    const view = new window.google.picker.DocsUploadView()
+    const uploadView = new window.google.picker.DocsUploadView()
       .setIncludeFolders(false)
       .setParent(DRIVE_FOLDER_ID);
 
     const picker = new window.google.picker.PickerBuilder()
       .setOAuthToken(accessToken)
       .setDeveloperKey(GOOGLE_API_KEY)
-      .addView(view)
+      .addView(uploadView)
       .setTitle(
         `Upload dokumen – ${programme.name} (${section.label.replace(
           /^A\. |^B\. |^C\. /,
@@ -130,7 +119,7 @@ async function openDrivePicker(programme, section, onPicked) {
   } catch (err) {
     console.error("Error opening Google Picker", err);
     alert(
-      "Google Drive tidak dapat diakses sekarang. Pastikan anda login akaun @usm.my dan refresh semula."
+      "Google Drive tidak dapat diakses. Pastikan anda login akaun @usm.my dan refresh semula."
     );
   }
 }
@@ -164,10 +153,9 @@ const STATUS_STYLES = {
   "Not started": "bg-rose-100 text-rose-800 border-rose-200",
   "In progress": "bg-amber-100 text-amber-800 border-amber-200",
   Completed: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  "Not required": "bg-slate-100 text-slate-700 border-slate-200",
+  "Not required": "bg-slate-100 text-slate-600 border-slate-200",
 };
 
-// ---- Checklist template per PIC ----
 const CHECKLIST_TEMPLATE = [
   "Semak kurikulum dalaman (CLO/PLO/MQF)",
   "Lantik penasihat luar",
@@ -735,7 +723,7 @@ export default function IPPTProgrammeTracker() {
   const [search, setSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("all");
 
-  // Load from localStorage on first mount
+  // Load from localStorage
   useEffect(() => {
     try {
       const savedProg = localStorage.getItem("ipptProgrammeStates");
@@ -789,7 +777,7 @@ export default function IPPTProgrammeTracker() {
     }
   }, []);
 
-  // Auto-save whenever state changes
+  // Auto-save
   useEffect(() => {
     if (Object.keys(programmeStates).length) {
       localStorage.setItem(
@@ -836,7 +824,7 @@ export default function IPPTProgrammeTracker() {
     return matchSearch && matchOwner;
   });
 
-  // Summary metrics for dashboard
+  // Dashboard summary
   const summary = useMemo(() => {
     if (!PROGRAMS.length) {
       return {
@@ -876,6 +864,7 @@ export default function IPPTProgrammeTracker() {
     };
   }, [programmeStates, srrChecklist]);
 
+  // Handlers
   const handleStatusChange = (programmeId, phaseKey, newStatus) => {
     setProgrammeStates((prev) => ({
       ...prev,
@@ -951,7 +940,6 @@ export default function IPPTProgrammeTracker() {
       setDriveFiles((prev) => {
         const existingProgram =
           prev[programme.id] || { advisor: [], ce: [], srr: [] };
-
         return {
           ...prev,
           [programme.id]: {
@@ -980,28 +968,28 @@ export default function IPPTProgrammeTracker() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* Header */}
-      <header className="border-b bg-white/80 backdrop-blur sticky top-0 z-10">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-sky-50 to-violet-50 text-slate-900">
+      {/* Top header */}
+      <header className="border-b bg-white/80 backdrop-blur sticky top-0 z-10 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight bg-gradient-to-r from-sky-600 to-violet-600 bg-clip-text text-transparent">
               IPPT Programme Accreditation Tracker 2026
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              Pantau status Penasihat Luar, CE, SRR dan Audit APP bagi program
-              IPPT & program pinjam.
+              Pantau Penasihat Luar, CE, SRR & Audit APP bagi program OWN IPPT
+              dan program pinjam.
             </p>
           </div>
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
             <input
-              className="border rounded-xl px-3 py-2 text-sm w-full md:w-64 shadow-sm focus:outline-none focus:ring focus:ring-sky-200"
+              className="border rounded-xl px-3 py-2 text-sm w-full md:w-64 shadow-sm focus:outline-none focus:ring focus:ring-sky-200 bg-white"
               placeholder="Cari program / PIC / NEC..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
             <select
-              className="border rounded-xl px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring focus:ring-sky-200"
+              className="border rounded-xl px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring focus:ring-sky-200 bg-white"
               value={ownerFilter}
               onChange={(e) => setOwnerFilter(e.target.value)}
             >
@@ -1018,22 +1006,22 @@ export default function IPPTProgrammeTracker() {
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* DASHBOARD SUMMARY */}
         <section className="grid md:grid-cols-3 gap-4">
-          <div className="bg-white border rounded-2xl shadow-sm p-4 flex flex-col justify-between">
-            <div className="text-xs font-semibold text-slate-500 uppercase">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 flex flex-col justify-between">
+            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
               Bilangan Program
             </div>
             <div className="mt-2 flex items-end justify-between">
               <div className="text-3xl font-bold text-slate-900">
                 {summary.total}
               </div>
-              <div className="text-xs text-slate-500">
-                Termasuk program pinjam & OWN IPPT
+              <div className="text-xs text-slate-500 text-right">
+                Termasuk program OWN & pinjam
               </div>
             </div>
           </div>
 
-          <div className="bg-white border rounded-2xl shadow-sm p-4">
-            <div className="text-xs font-semibold text-slate-500 uppercase">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
+            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
               Purata Progress Fasa 2026
             </div>
             <div className="flex items-center justify-between mt-2 mb-1">
@@ -1041,19 +1029,19 @@ export default function IPPTProgrammeTracker() {
                 {summary.avgPhase}%
               </div>
               <span className="inline-flex px-2 py-1 rounded-full text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-100">
-                Q1–Q4 Status
+                Q1–Q4
               </span>
             </div>
             <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
               <div
-                className="h-full bg-emerald-400 transition-all"
+                className="h-full bg-gradient-to-r from-emerald-400 to-sky-400 transition-all"
                 style={{ width: `${summary.avgPhase}%` }}
               />
             </div>
           </div>
 
-          <div className="bg-white border rounded-2xl shadow-sm p-4">
-            <div className="text-xs font-semibold text-slate-500 uppercase">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
+            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
               Purata SRR COPPA Readiness
             </div>
             <div className="flex items-center justify-between mt-2 mb-1">
@@ -1083,18 +1071,20 @@ export default function IPPTProgrammeTracker() {
           </div>
         </section>
 
-        {/* Legend */}
-        <section className="bg-white rounded-2xl shadow-sm border p-4 text-xs md:text-sm flex flex-wrap gap-6">
+        {/* LEGEND */}
+        <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 text-xs md:text-sm flex flex-wrap gap-6">
           <div>
-            <div className="font-semibold mb-1">Fasa 2026</div>
-            <ul className="space-y-0.5 list-disc list-inside">
+            <div className="font-semibold mb-1 text-slate-700">
+              Fasa 2026 (Gantt)
+            </div>
+            <ul className="space-y-0.5 list-disc list-inside text-slate-600">
               {PHASES.map((p) => (
                 <li key={p.key}>{p.label}</li>
               ))}
             </ul>
           </div>
           <div>
-            <div className="font-semibold mb-1">Status Fasa</div>
+            <div className="font-semibold mb-1 text-slate-700">Status Fasa</div>
             <div className="flex flex-wrap gap-2">
               <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-800 text-[11px] border border-rose-200">
                 Not started
@@ -1112,7 +1102,7 @@ export default function IPPTProgrammeTracker() {
           </div>
         </section>
 
-        {/* Programme cards */}
+        {/* PROGRAMME CARDS */}
         <section className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredPrograms.map((p) => {
             const statusObj =
@@ -1138,16 +1128,18 @@ export default function IPPTProgrammeTracker() {
             return (
               <article
                 key={p.id}
-                className="bg-white border rounded-2xl shadow-sm p-4 flex flex-col gap-3"
+                className="bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md transition-shadow p-4 flex flex-col gap-3"
               >
                 {/* Header */}
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="text-xs text-slate-500">Program #{p.no}</div>
-                    <h2 className="font-semibold text-sm md:text-base leading-snug">
+                    <div className="text-[11px] text-slate-400">
+                      Program #{p.no}
+                    </div>
+                    <h2 className="font-semibold text-sm md:text-base leading-snug text-slate-900">
                       {p.name}
                     </h2>
-                    <div className="text-xs text-slate-500 mt-1">
+                    <div className="text-[11px] text-slate-500 mt-1">
                       {p.owner} · {p.remarks} · NEC {p.nec}
                     </div>
                     {p.label && (
@@ -1156,7 +1148,7 @@ export default function IPPTProgrammeTracker() {
                       </div>
                     )}
                   </div>
-                  <div className="text-right text-xs text-slate-500 max-w-[50%]">
+                  <div className="text-right text-[11px] text-slate-500 max-w-[55%]">
                     <div className="font-medium text-slate-700">PIC</div>
                     <div>{p.pic || "-"}</div>
                     {p.team?.length > 0 && (
@@ -1176,7 +1168,7 @@ export default function IPPTProgrammeTracker() {
                   </div>
                   <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-emerald-400 transition-all"
+                      className="h-full bg-gradient-to-r from-sky-400 via-emerald-400 to-violet-400 transition-all"
                       style={{ width: `${progress}%` }}
                     />
                   </div>
@@ -1186,8 +1178,15 @@ export default function IPPTProgrammeTracker() {
                 <div className="space-y-2">
                   {PHASES.map((phase) => (
                     <div key={phase.key} className="flex flex-col gap-1">
-                      <div className="text-[11px] font-medium text-slate-700">
-                        {phase.label}
+                      <div className="flex items-center justify-between">
+                        <div className="text-[11px] font-medium text-slate-700">
+                          {phase.label}
+                        </div>
+                        <div
+                          className={`px-2 py-0.5 rounded-full text-[10px] border ${STATUS_STYLES[statusObj[phase.key]]}`}
+                        >
+                          {statusObj[phase.key]}
+                        </div>
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {STATUS_OPTIONS.map((s) => (
@@ -1199,7 +1198,7 @@ export default function IPPTProgrammeTracker() {
                             } ${
                               statusObj[phase.key] === s
                                 ? "ring-2 ring-sky-400 ring-offset-1"
-                                : "opacity-80 hover:opacity-100"
+                                : "opacity-70 hover:opacity-100"
                             }`}
                             onClick={() =>
                               handleStatusChange(p.id, phase.key, s)
@@ -1213,11 +1212,11 @@ export default function IPPTProgrammeTracker() {
                   ))}
                 </div>
 
-                {/* Upload documents (local only) */}
-                <div className="border-t pt-3 mt-2">
+                {/* Local Upload */}
+                <div className="border-t border-slate-100 pt-3 mt-2">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-[11px] font-semibold text-slate-700">
-                      Upload Tempatan (fail tidak ke Drive)
+                      Upload Tempatan (tidak ke Drive)
                     </div>
                   </div>
                   <input
@@ -1248,19 +1247,19 @@ export default function IPPTProgrammeTracker() {
                     </ul>
                   )}
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Hanya untuk rujukan pantas di pelayar ini (tidak di-upload
-                    ke Google Drive).
+                    Hanya rekod di pelayar ini (backup internal sebelum upload
+                    rasmi SRR).
                   </p>
                 </div>
 
-                {/* GOOGLE DRIVE UPLOADS */}
-                <div className="border-t pt-3 mt-2">
+                {/* Google Drive uploads */}
+                <div className="border-t border-slate-100 pt-3 mt-2">
                   <div className="flex items-center justify-between mb-1">
                     <div className="text-[11px] font-semibold text-sky-800">
                       Dokumen Google Drive (Folder IPPT)
                     </div>
                     <span className="text-[10px] text-slate-500">
-                      Upload guna akaun <span className="font-semibold">@usm.my</span>
+                      Guna akaun <span className="font-semibold">@usm.my</span>
                     </span>
                   </div>
 
@@ -1319,15 +1318,14 @@ export default function IPPTProgrammeTracker() {
                       !drive.ce.length &&
                       !drive.srr.length && (
                         <p className="text-[10px] text-slate-400">
-                          Tiada dokumen Google Drive direkodkan lagi untuk
-                          program ini.
+                          Tiada rekod dokumen Drive lagi untuk program ini.
                         </p>
                       )}
                   </div>
                 </div>
 
                 {/* PIC Checklist */}
-                <div className="border-t pt-3 mt-2">
+                <div className="border-t border-slate-100 pt-3 mt-2">
                   <div className="text-[11px] font-semibold text-slate-700 mb-2">
                     Senarai Semak PIC (Tugasan Operasi)
                   </div>
@@ -1348,8 +1346,8 @@ export default function IPPTProgrammeTracker() {
                   </ul>
                 </div>
 
-                {/* SRR COPPA Checklist */}
-                <div className="border-t pt-3 mt-3">
+                {/* SRR COPPA checklist */}
+                <div className="border-t border-slate-100 pt-3 mt-3">
                   <div className="flex items-center justify-between mb-1">
                     <div className="text-[11px] font-semibold text-indigo-700">
                       SRR COPPA Checklist (Level 5 Attainment)
@@ -1366,41 +1364,43 @@ export default function IPPTProgrammeTracker() {
 
                   <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
                     {SRR_COPPA_SECTIONS.map((section, sIdx) => (
-                      <div
+                      <details
                         key={section.title}
-                        className="border border-slate-100 rounded-xl p-2 bg-slate-50/70"
+                        className="border border-slate-100 rounded-xl bg-slate-50/70"
                       >
-                        <div className="text-[10px] font-semibold text-slate-700 mb-1">
-                          {section.title}
-                        </div>
-                        <ul className="space-y-1">
-                          {section.items.map((item, iIdx) => {
-                            const globalIndex =
-                              SRR_SECTION_OFFSETS[sIdx] + iIdx;
-                            return (
-                              <li
-                                key={item.code}
-                                className="flex items-start gap-2 text-[10px]"
-                              >
-                                <input
-                                  type="checkbox"
-                                  className="mt-0.5"
-                                  checked={!!srrArray[globalIndex]}
-                                  onChange={() =>
-                                    handleSrrToggle(p.id, globalIndex)
-                                  }
-                                />
-                                <span className="text-slate-700">
-                                  <span className="font-semibold mr-1">
-                                    {item.code}
+                        <summary className="px-2 py-1.5 cursor-pointer text-[10px] font-semibold text-slate-700 flex items-center justify-between">
+                          <span>{section.title}</span>
+                        </summary>
+                        <div className="px-2 pb-2 pt-1">
+                          <ul className="space-y-1">
+                            {section.items.map((item, iIdx) => {
+                              const globalIndex =
+                                SRR_SECTION_OFFSETS[sIdx] + iIdx;
+                              return (
+                                <li
+                                  key={item.code}
+                                  className="flex items-start gap-2 text-[10px]"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="mt-0.5"
+                                    checked={!!srrArray[globalIndex]}
+                                    onChange={() =>
+                                      handleSrrToggle(p.id, globalIndex)
+                                    }
+                                  />
+                                  <span className="text-slate-700">
+                                    <span className="font-semibold mr-1">
+                                      {item.code}
+                                    </span>
+                                    {item.label}
                                   </span>
-                                  {item.label}
-                                </span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      </details>
                     ))}
                   </div>
                 </div>
