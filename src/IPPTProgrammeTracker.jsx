@@ -207,7 +207,7 @@ const PROGRAMS = [
     owner: "Pusat Pengajian Sains Pergigian",
     noMqa: "MQA/SWA10638",
     nec: "0910 (Health not further defined)",
-    pic: "Noor Ayuni binti Ahmad Shafiai",
+    pic: "Noor Ayuni binti Shafiai",
     team: [
       "Norehan binti Mokhtar",
       "Nawal Radhiah Abdul Rahman",
@@ -586,66 +586,244 @@ export default function IPPTProgrammeTracker() {
     });
   };
 
+  // ===== Dashboard summary (colourful cards) =====
+  const totalPrograms = PROGRAMS.length;
+
+  const overallProgress = useMemo(() => {
+    if (!totalPrograms) return 0;
+    const totals = PROGRAMS.map((p) =>
+      computeProgress(
+        programmeStates[p.id] || {
+          q1: "Not started",
+          q2: "Not started",
+          q3: "Not started",
+          q4: "Not started",
+        }
+      )
+    );
+    const sum = totals.reduce((a, b) => a + b, 0);
+    return Math.round(sum / totalPrograms);
+  }, [programmeStates]);
+
+  const quarterCompletion = useMemo(() => {
+    const stats = {
+      q1: 0,
+      q2: 0,
+      q3: 0,
+      q4: 0,
+    };
+    PROGRAMS.forEach((p) => {
+      const s =
+        programmeStates[p.id] || {
+          q1: "Not started",
+          q2: "Not started",
+          q3: "Not started",
+          q4: "Not started",
+        };
+      PHASES.forEach((ph) => {
+        if (s[ph.key] === "Completed") stats[ph.key] += 1;
+      });
+    });
+    return stats;
+  }, [programmeStates]);
+
+  const urgentProgramsCount = useMemo(() => {
+    // Simple rule: any program with at least one phase still "Not started"
+    return PROGRAMS.filter((p) => {
+      const s =
+        programmeStates[p.id] || {
+          q1: "Not started",
+          q2: "Not started",
+          q3: "Not started",
+          q4: "Not started",
+        };
+      return Object.values(s).includes("Not started");
+    }).length;
+  }, [programmeStates]);
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b bg-white/80 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-sky-50 to-violet-50 text-slate-900">
+      {/* Top gradient header */}
+      <header className="bg-gradient-to-r from-sky-600 via-sky-500 to-violet-500 text-white shadow-md sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-              IPPT Programme Accreditation Tracker 2026
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white/15 backdrop-blur">
+                📊
+              </span>
+              <span>IPPT Accreditation Dashboard 2026</span>
             </h1>
-            <p className="text-sm text-slate-600 mt-1">
-              Pantau status Penasihat Luar, CE, SRR dan Audit APP bagi 20
-              program.
+            <p className="text-sm md:text-base text-sky-100 mt-1 max-w-xl">
+              Pantau secara visual status Penasihat Luar, CE, SRR dan Audit APP
+              bagi semua program berkaitan IPPT.
             </p>
           </div>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center">
-            <input
-              className="border rounded-xl px-3 py-2 text-sm w-full md:w-64 shadow-sm focus:outline-none focus:ring focus:ring-sky-200"
-              placeholder="Cari program / PIC / NEC..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <select
-              className="border rounded-xl px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring focus:ring-sky-200"
-              value={ownerFilter}
-              onChange={(e) => setOwnerFilter(e.target.value)}
-            >
-              {owners.map((o) => (
-                <option key={o} value={o}>
-                  {o === "all" ? "Semua Owner" : o}
-                </option>
-              ))}
-            </select>
+
+          <div className="flex flex-col gap-2 md:items-end">
+            <div className="flex flex-wrap gap-2">
+              <input
+                className="border border-white/40 bg-white/10 rounded-xl px-3 py-2 text-sm w-full md:w-64 shadow-sm placeholder:text-sky-100/70 focus:outline-none focus:ring-2 focus:ring-white/60"
+                placeholder="🔍 Cari program / PIC / NEC..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <select
+                className="border border-white/40 bg-white/10 rounded-xl px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-white/60"
+                value={ownerFilter}
+                onChange={(e) => setOwnerFilter(e.target.value)}
+              >
+                {owners.map((o) => (
+                  <option key={o} value={o}>
+                    {o === "all" ? "Semua Owner" : o}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="text-[11px] text-sky-100/80">
+              {filteredPrograms.length} daripada {totalPrograms} program
+              dipaparkan
+            </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* Dashboard summary cards */}
+        <section className="grid md:grid-cols-4 gap-4">
+          <div className="bg-white rounded-2xl shadow-sm border border-sky-100/60 p-4 flex flex-col gap-2">
+            <div className="text-xs font-semibold text-sky-600 uppercase tracking-wide">
+              Keseluruhan
+            </div>
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-slate-800">
+                {overallProgress}%
+              </div>
+              <span className="text-xs px-2 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-100">
+                Progress 2026
+              </span>
+            </div>
+            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden mt-1">
+              <div
+                className="h-full bg-gradient-to-r from-sky-400 to-emerald-400 transition-all"
+                style={{ width: `${overallProgress}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Purata pencapaian semua program mengikut fasa Q1–Q4.
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 p-4 flex flex-col gap-2">
+            <div className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">
+              Program
+            </div>
+            <div className="flex items-end justify-between">
+              <div>
+                <div className="text-3xl font-bold text-slate-800">
+                  {totalPrograms}
+                </div>
+                <div className="text-xs text-slate-500 mt-1">
+                  Jumlah program dalam radar IPPT
+                </div>
+              </div>
+              <span className="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                Semua NEC
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-amber-100 p-4 flex flex-col gap-2">
+            <div className="text-xs font-semibold text-amber-600 uppercase tracking-wide">
+              Perlu Perhatian
+            </div>
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-slate-800">
+                {urgentProgramsCount}
+              </div>
+              <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                Ada fasa “Not started”
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Program yang masih ada sekurang-kurangnya satu fasa belum
+              bermula.
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-violet-100 p-4 flex flex-col gap-2">
+            <div className="text-xs font-semibold text-violet-600 uppercase tracking-wide">
+              Fasa Siap / {totalPrograms}
+            </div>
+            <div className="grid grid-cols-2 gap-1 text-[11px] mt-1">
+              <div className="flex items-center justify-between bg-violet-50 rounded-xl px-2 py-1">
+                <span>Q1</span>
+                <span className="font-semibold text-violet-700">
+                  {quarterCompletion.q1}
+                </span>
+              </div>
+              <div className="flex items-center justify-between bg-sky-50 rounded-xl px-2 py-1">
+                <span>Q2</span>
+                <span className="font-semibold text-sky-700">
+                  {quarterCompletion.q2}
+                </span>
+              </div>
+              <div className="flex items-center justify-between bg-emerald-50 rounded-xl px-2 py-1">
+                <span>Q3</span>
+                <span className="font-semibold text-emerald-700">
+                  {quarterCompletion.q3}
+                </span>
+              </div>
+              <div className="flex items-center justify-between bg-rose-50 rounded-xl px-2 py-1">
+                <span>Q4</span>
+                <span className="font-semibold text-rose-700">
+                  {quarterCompletion.q4}
+                </span>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Bilangan program yang sudah lengkap pada setiap suku tahun.
+            </p>
+          </div>
+        </section>
+
         {/* Legend */}
-        <section className="bg-white rounded-2xl shadow-sm border p-4 text-xs md:text-sm flex flex-wrap gap-4">
+        <section className="bg-white/80 backdrop-blur rounded-2xl shadow-sm border border-slate-100 p-4 text-xs md:text-sm flex flex-wrap gap-6">
           <div>
-            <div className="font-semibold mb-1">Fasa 2026</div>
-            <ul className="space-y-0.5 list-disc list-inside">
+            <div className="font-semibold mb-1 text-slate-700">Fasa 2026</div>
+            <ul className="space-y-0.5 list-disc list-inside text-slate-600">
               {PHASES.map((p) => (
                 <li key={p.key}>{p.label}</li>
               ))}
             </ul>
           </div>
           <div>
-            <div className="font-semibold mb-1">Status</div>
+            <div className="font-semibold mb-1 text-slate-700">Status</div>
             <div className="flex flex-wrap gap-2">
-              <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-700">
+              <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200 text-[11px]">
                 Not started
               </span>
-              <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800">
+              <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200 text-[11px]">
                 In progress
               </span>
-              <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-800">
+              <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px]">
                 Completed
               </span>
-              <span className="px-2 py-1 rounded-full bg-slate-200 text-slate-700">
+              <span className="px-2 py-1 rounded-full bg-slate-200 text-slate-700 border border-slate-300 text-[11px]">
                 Not required
+              </span>
+            </div>
+          </div>
+          <div>
+            <div className="font-semibold mb-1 text-slate-700">Label Program</div>
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              <span className="px-2 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-100">
+                Pinjam
+              </span>
+              <span className="px-2 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-100">
+                IPPT Owner (FA)
+              </span>
+              <span className="px-2 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-100">
+                Pinjam, NO SRR
               </span>
             </div>
           </div>
@@ -665,153 +843,193 @@ export default function IPPTProgrammeTracker() {
             const files = uploadedFiles[p.id] || [];
             const progress = computeProgress(statusObj);
 
+            // pick stripe colour based on owner/label
+            const stripeClass =
+              p.remarks === "OWN"
+                ? "from-violet-400 to-violet-500"
+                : p.label?.includes("NO SRR")
+                ? "from-rose-400 to-rose-500"
+                : "from-sky-400 to-sky-500";
+
             return (
               <article
                 key={p.id}
-                className="bg-white border rounded-2xl shadow-sm p-4 flex flex-col gap-3"
+                className="relative bg-white/90 backdrop-blur border border-slate-100 rounded-2xl shadow-sm hover:shadow-md transition-shadow flex flex-col gap-3"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="text-xs text-slate-500">
-                      Program #{p.no}
-                    </div>
-                    <h2 className="font-semibold text-sm md:text-base leading-snug">
-                      {p.name}
-                    </h2>
-                    <div className="text-xs text-slate-500 mt-1">
-                      {p.owner} · {p.remarks} · NEC {p.nec}
-                    </div>
-                    {p.label && (
-                      <div className="inline-flex mt-2 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide bg-sky-50 text-sky-700 border border-sky-100">
-                        {p.label}
+                {/* coloured stripe */}
+                <div
+                  className={`absolute inset-x-0 h-1 rounded-t-2xl bg-gradient-to-r ${stripeClass}`}
+                />
+
+                <div className="p-4 flex flex-col gap-3">
+                  <div className="flex items-start justify-between gap-2 mt-2">
+                    <div>
+                      <div className="text-[11px] text-slate-400">
+                        Program #{p.no}
                       </div>
-                    )}
-                  </div>
-                  <div className="text-right text-xs text-slate-500">
-                    <div className="font-medium text-slate-700">PIC</div>
-                    <div>{p.pic || "-"}</div>
-                  </div>
-                </div>
-
-                {/* Progress bar */}
-                <div>
-                  <div className="flex justify-between text-[11px] text-slate-500 mb-1">
-                    <span>Progress 2026</span>
-                    <span>{progress}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-400 transition-all"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Phase status selectors */}
-                <div className="space-y-2">
-                  {PHASES.map((phase) => (
-                    <div key={phase.key} className="flex items-center gap-2">
-                      <div className="flex-1">
-                        <div className="text-[11px] font-medium text-slate-700">
-                          {phase.label}
+                      <h2 className="font-semibold text-sm md:text-base leading-snug text-slate-900">
+                        {p.name}
+                      </h2>
+                      <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
+                        <div>{p.owner}</div>
+                        <div>
+                          <span className="font-medium">NEC:</span> {p.nec}
+                        </div>
+                        <div className="text-[10px]">
+                          <span className="font-medium">MQA:</span>{" "}
+                          {p.noMqa || "-"}
                         </div>
                       </div>
-                      <select
-                        className="border rounded-lg px-2 py-1 text-[11px] bg-white shadow-sm focus:outline-none focus:ring focus:ring-sky-200"
-                        value={statusObj[phase.key]}
-                        onChange={(e) =>
-                          handleStatusChange(p.id, phase.key, e.target.value)
-                        }
-                      >
-                        {STATUS_OPTIONS.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
+                      {p.label && (
+                        <div className="inline-flex mt-2 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide bg-sky-50 text-sky-700 border border-sky-100">
+                          {p.label}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
-
-                {/* Upload documents (Google Drive) */}
-                <div className="border-t pt-3 mt-2">
-                  <div className="text-[11px] font-semibold text-slate-700 mb-2">
-                    Dokumen Berkaitan (Google Drive)
+                    <div className="text-right text-[11px] text-slate-500">
+                      <div className="font-semibold text-slate-700">PIC</div>
+                      <div className="max-w-[140px] truncate">
+                        {p.pic || "-"}
+                      </div>
+                    </div>
                   </div>
 
-                  <button
-                    type="button"
-                    className="text-[11px] px-3 py-1.5 rounded-lg border border-sky-200 bg-sky-50 hover:bg-sky-100"
-                    onClick={() => handleFileUpload(p.id)}
-                  >
-                    Upload ke Google Drive
-                  </button>
+                  {/* Progress bar */}
+                  <div>
+                    <div className="flex justify-between text-[11px] text-slate-500 mb-1">
+                      <span>Progress 2026</span>
+                      <span className="font-semibold text-slate-700">
+                        {progress}%
+                      </span>
+                    </div>
+                    <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-emerald-400 via-sky-400 to-violet-400 transition-all"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
 
-                  {files.length > 0 && (
-                    <ul className="mt-2 space-y-1 max-h-24 overflow-y-auto pr-1 text-[11px] text-slate-600">
-                      {files.map((f, idx) => (
+                  {/* Phase status selectors */}
+                  <div className="space-y-2">
+                    {PHASES.map((phase, idx) => (
+                      <div
+                        key={phase.key}
+                        className="flex items-center gap-2 text-[11px]"
+                      >
+                        <div className="w-5 h-5 rounded-full border border-slate-200 flex items-center justify-center text-[10px] text-slate-500 bg-slate-50">
+                          {idx + 1}
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium text-slate-700">
+                            {phase.label}
+                          </div>
+                        </div>
+                        <select
+                          className="border rounded-lg px-2 py-1 text-[11px] bg-white shadow-sm focus:outline-none focus:ring focus:ring-sky-200"
+                          value={statusObj[phase.key]}
+                          onChange={(e) =>
+                            handleStatusChange(p.id, phase.key, e.target.value)
+                          }
+                        >
+                          {STATUS_OPTIONS.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Upload documents (Google Drive) */}
+                  <div className="border-t pt-3 mt-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[11px] font-semibold text-slate-700">
+                        Dokumen Berkaitan (Google Drive)
+                      </div>
+                      <button
+                        type="button"
+                        className="text-[11px] px-3 py-1.5 rounded-full border border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-700"
+                        onClick={() => handleFileUpload(p.id)}
+                      >
+                        Upload ke Drive
+                      </button>
+                    </div>
+
+                    {files.length > 0 && (
+                      <ul className="mt-1 space-y-1 max-h-24 overflow-y-auto pr-1 text-[11px] text-slate-600">
+                        {files.map((f, idx) => (
+                          <li
+                            key={idx}
+                            className="flex items-center justify-between gap-2"
+                          >
+                            {f.url ? (
+                              <a
+                                href={f.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="truncate underline hover:text-sky-700"
+                                title={f.name}
+                              >
+                                • {f.name}
+                                {f.size &&
+                                  ` (${Math.round(f.size / 1024)} KB)`}
+                              </a>
+                            ) : (
+                              <span className="truncate">
+                                • {f.name}
+                                {f.size &&
+                                  ` (${Math.round(f.size / 1024)} KB)`}
+                              </span>
+                            )}
+
+                            <button
+                              type="button"
+                              className="text-[10px] px-1.5 py-0.5 border rounded-full text-red-600 border-red-200 hover:bg-red-50"
+                              onClick={() => handleFileDelete(p.id, idx)}
+                            >
+                              Buang
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {files.length === 0 && (
+                      <p className="text-[10px] text-slate-400">
+                        Belum ada dokumen dimuat naik untuk program ini.
+                      </p>
+                    )}
+
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Nota: Fail disimpan di Google Drive (folder IPPT). Senarai
+                      ini hanya menyimpan link untuk program ini.
+                    </p>
+                  </div>
+
+                  {/* Checklist Section */}
+                  <div className="border-t pt-3 mt-2">
+                    <div className="text-[11px] font-semibold text-slate-700 mb-2">
+                      Senarai Semak PIC
+                    </div>
+                    <ul className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                      {CHECKLIST_TEMPLATE.map((item, idx) => (
                         <li
                           key={idx}
-                          className="flex items-center justify-between gap-2"
+                          className="flex items-start gap-2 text-[11px]"
                         >
-                          {f.url ? (
-                            <a
-                              href={f.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="truncate underline hover:text-sky-700"
-                              title={f.name}
-                            >
-                              • {f.name}
-                              {f.size &&
-                                ` (${Math.round(f.size / 1024)} KB)`}
-                            </a>
-                          ) : (
-                            <span className="truncate">
-                              • {f.name}
-                              {f.size &&
-                                ` (${Math.round(f.size / 1024)} KB)`}
-                            </span>
-                          )}
-
-                          <button
-                            type="button"
-                            className="text-[10px] px-1.5 py-0.5 border rounded-full text-red-600 border-red-200 hover:bg-red-50"
-                            onClick={() => handleFileDelete(p.id, idx)}
-                          >
-                            Buang
-                          </button>
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={!!checklist[idx]}
+                            onChange={() => handleChecklistToggle(p.id, idx)}
+                          />
+                          <span className="text-slate-600">{item}</span>
                         </li>
                       ))}
                     </ul>
-                  )}
-
-                  <p className="text-[10px] text-slate-500 mt-1">
-                    Nota: Fail disimpan di Google Drive (folder IPPT). Senarai
-                    ini hanya menyimpan link untuk program ini.
-                  </p>
-                </div>
-
-                {/* Checklist Section */}
-                <div className="border-t pt-3 mt-2">
-                  <div className="text-[11px] font-semibold text-slate-700 mb-2">
-                    Senarai Semak PIC
                   </div>
-                  <ul className="space-y-1 max-h-32 overflow-y-auto pr-1">
-                    {CHECKLIST_TEMPLATE.map((item, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <input
-                          type="checkbox"
-                          className="mt-1"
-                          checked={!!checklist[idx]}
-                          onChange={() => handleChecklistToggle(p.id, idx)}
-                        />
-                        <span className="text-[11px] text-slate-600">
-                          {item}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
                 </div>
               </article>
             );
