@@ -1,8 +1,102 @@
+/* global gapi, google */
 import React, { useState, useMemo, useEffect } from "react";
 
 // ---- Google Drive Config ----
-const GOOGLE_CLIENT_ID = "24521575326-4hni7mkmiut33lidfaqo9aksf9b1g164.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID =
+  "24521575326-4hni7mkmiut33lidfaqo9aksf9b1g164.apps.googleusercontent.com";
+const GOOGLE_API_KEY = "AIzaSyAFyUx9-w3uShMkr1wwJyIBQ1dvvzQSTkg";
 const DRIVE_FOLDER_ID = "1sYLzlypBed420jNele6qaGB0O-1s7nXK";
+
+// ====== Google Picker helpers ======
+let gapiLoaded = false;
+let pickerLoaded = false;
+let tokenClient = null;
+
+function loadGapi() {
+  return new Promise((resolve, reject) => {
+    if (gapiLoaded && pickerLoaded) return resolve();
+
+    function check() {
+      if (window.gapi && window.google) {
+        window.gapi.load("client:picker", async () => {
+          try {
+            await window.gapi.client.init({
+              apiKey: GOOGLE_API_KEY,
+              discoveryDocs: [
+                "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
+              ],
+            });
+            gapiLoaded = true;
+            pickerLoaded = true;
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        });
+      } else {
+        setTimeout(check, 300);
+      }
+    }
+    check();
+  });
+}
+
+function getAccessToken() {
+  return new Promise(async (resolve, reject) => {
+    try {
+      await loadGapi();
+    } catch (e) {
+      return reject(e);
+    }
+
+    if (!tokenClient) {
+      const oauth2 = window.google.accounts.oauth2;
+      tokenClient = oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: "https://www.googleapis.com/auth/drive.file",
+        callback: (tokenResponse) => {
+          if (tokenResponse && tokenResponse.access_token) {
+            resolve(tokenResponse.access_token);
+          } else {
+            reject(new Error("No access token"));
+          }
+        },
+      });
+    }
+
+    tokenClient.requestAccessToken({ prompt: "" });
+  });
+}
+
+async function openDrivePicker(programme, onPicked) {
+  const accessToken = await getAccessToken();
+
+  const view = new window.google.picker.DocsUploadView()
+    .setIncludeFolders(false)
+    .setParent(DRIVE_FOLDER_ID);
+
+  const picker = new window.google.picker.PickerBuilder()
+    .setOAuthToken(accessToken)
+    .setDeveloperKey(GOOGLE_API_KEY)
+    .addView(view)
+    .setTitle(`Upload dokumen - ${programme.name}`)
+    .setCallback((data) => {
+      if (data.action === window.google.picker.Action.PICKED) {
+        const docs = data.docs || [];
+        const mapped = docs.map((d) => ({
+          id: d.id,
+          name: d.name,
+          mimeType: d.mimeType,
+          size: d.sizeBytes,
+          url: `https://drive.google.com/file/d/${d.id}/view`,
+        }));
+        onPicked(mapped);
+      }
+    })
+    .build();
+
+  picker.setVisible(true);
+}
 
 // ---- Config ----
 
@@ -348,7 +442,9 @@ const PROGRAMS = [
 function computeProgress(statusByPhase) {
   if (!statusByPhase) return 0;
   const total = PHASES.length;
-  const completed = PHASES.filter((p) => statusByPhase[p.key] === "Completed").length;
+  const completed = PHASES.filter(
+    (p) => statusByPhase[p.key] === "Completed"
+  ).length;
   return Math.round((completed / total) * 100);
 }
 
@@ -406,7 +502,10 @@ export default function IPPTProgrammeTracker() {
       );
     }
     if (Object.keys(checklistStates).length) {
-      localStorage.setItem("ipptChecklistStates", JSON.stringify(checklistStates));
+      localStorage.setItem(
+        "ipptChecklistStates",
+        JSON.stringify(checklistStates)
+      );
     }
     if (Object.keys(uploadedFiles).length) {
       localStorage.setItem("ipptUploadedFiles", JSON.stringify(uploadedFiles));
@@ -455,25 +554,25 @@ export default function IPPTProgrammeTracker() {
     });
   };
 
-  const handleFileUpload = (programmeId, event) => {
-    const files = Array.from(event.target.files || []);
-    if (!files.length) return;
+  // ==== NEW: upload using Google Picker ====
+  const handleFileUpload = async (programmeId) => {
+    const programme = PROGRAMS.find((p) => p.id === programmeId);
+    if (!programme) return;
 
-    setUploadedFiles((prev) => {
-      const existing = prev[programmeId] || [];
-      const newEntries = files.map((file) => ({
-        name: file.name,
-        size: file.size,
-        lastModified: file.lastModified,
-      }));
-      return {
-        ...prev,
-        [programmeId]: [...existing, ...newEntries],
-      };
-    });
-
-    // reset input so the same file can be reselected later
-    event.target.value = "";
+    try {
+      await openDrivePicker(programme, (pickedFiles) => {
+        setUploadedFiles((prev) => {
+          const existing = prev[programmeId] || [];
+          return {
+            ...prev,
+            [programmeId]: [...existing, ...pickedFiles],
+          };
+        });
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Gagal upload ke Google Drive. Sila cuba lagi.");
+    }
   };
 
   const handleFileDelete = (programmeId, index) => {
@@ -496,7 +595,8 @@ export default function IPPTProgrammeTracker() {
               IPPT Programme Accreditation Tracker 2026
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              Pantau status Penasihat Luar, CE, SRR dan Audit APP bagi 20 program.
+              Pantau status Penasihat Luar, CE, SRR dan Audit APP bagi 20
+              program.
             </p>
           </div>
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
@@ -572,7 +672,9 @@ export default function IPPTProgrammeTracker() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="text-xs text-slate-500">Program #{p.no}</div>
+                    <div className="text-xs text-slate-500">
+                      Program #{p.no}
+                    </div>
                     <h2 className="font-semibold text-sm md:text-base leading-snug">
                       {p.name}
                     </h2>
@@ -631,17 +733,20 @@ export default function IPPTProgrammeTracker() {
                   ))}
                 </div>
 
-                {/* Upload documents */}
+                {/* Upload documents (Google Drive) */}
                 <div className="border-t pt-3 mt-2">
                   <div className="text-[11px] font-semibold text-slate-700 mb-2">
-                    Dokumen Berkaitan (rekod tempatan)
+                    Dokumen Berkaitan (Google Drive)
                   </div>
-                  <input
-                    type="file"
-                    multiple
-                    className="text-[11px]"
-                    onChange={(e) => handleFileUpload(p.id, e)}
-                  />
+
+                  <button
+                    type="button"
+                    className="text-[11px] px-3 py-1.5 rounded-lg border border-sky-200 bg-sky-50 hover:bg-sky-100"
+                    onClick={() => handleFileUpload(p.id)}
+                  >
+                    Upload ke Google Drive
+                  </button>
+
                   {files.length > 0 && (
                     <ul className="mt-2 space-y-1 max-h-24 overflow-y-auto pr-1 text-[11px] text-slate-600">
                       {files.map((f, idx) => (
@@ -649,9 +754,26 @@ export default function IPPTProgrammeTracker() {
                           key={idx}
                           className="flex items-center justify-between gap-2"
                         >
-                          <span className="truncate">
-                            • {f.name} ({Math.round(f.size / 1024)} KB)
-                          </span>
+                          {f.url ? (
+                            <a
+                              href={f.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="truncate underline hover:text-sky-700"
+                              title={f.name}
+                            >
+                              • {f.name}
+                              {f.size &&
+                                ` (${Math.round(f.size / 1024)} KB)`}
+                            </a>
+                          ) : (
+                            <span className="truncate">
+                              • {f.name}
+                              {f.size &&
+                                ` (${Math.round(f.size / 1024)} KB)`}
+                            </span>
+                          )}
+
                           <button
                             type="button"
                             className="text-[10px] px-1.5 py-0.5 border rounded-full text-red-600 border-red-200 hover:bg-red-50"
@@ -663,9 +785,10 @@ export default function IPPTProgrammeTracker() {
                       ))}
                     </ul>
                   )}
+
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Nota: Fail tidak disimpan di server; senarai ini hanya sebagai rekod
-                    di pelayar ini.
+                    Nota: Fail disimpan di Google Drive (folder IPPT). Senarai
+                    ini hanya menyimpan link untuk program ini.
                   </p>
                 </div>
 
@@ -683,7 +806,9 @@ export default function IPPTProgrammeTracker() {
                           checked={!!checklist[idx]}
                           onChange={() => handleChecklistToggle(p.id, idx)}
                         />
-                        <span className="text-[11px] text-slate-600">{item}</span>
+                        <span className="text-[11px] text-slate-600">
+                          {item}
+                        </span>
                       </li>
                     ))}
                   </ul>
