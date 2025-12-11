@@ -2,7 +2,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import IPPTPLOModule from "./components/IPPTPLOModule";
 
-
 /* ============================================================
    GOOGLE DRIVE CONFIG (Picker / Frontend-only)
 ===============================================================*/
@@ -172,7 +171,7 @@ const CHECKLIST_TEMPLATE = [
 ];
 
 /* ============================================================
-   SRR COPPA Checklist (Standard 1–9, 30 items)
+   SRR COPPA Checklist (Standard 1–9, 30+ items)
 ===============================================================*/
 
 const SRR_COPPA_SECTIONS = [
@@ -320,7 +319,7 @@ const SRR_COPPA_SECTIONS = [
       {
         code: "7.2",
         label:
-          "Input pihak industri / penasihat luar diambil kira dan ditindaklanjuti.",
+          "Input pihak industri / penasihat luar diambil kira dan ditindaklajuti.",
       },
       {
         code: "7.3",
@@ -387,6 +386,7 @@ const SRR_TOTAL_ITEMS =
 
 /* ============================================================
    PROGRAMME LIST (20 PROGRAMMES)
+   (kept as provided)
 ===============================================================*/
 
 const PROGRAMS = [
@@ -788,22 +788,13 @@ export default function IPPTProgrammeTracker() {
       );
     }
     if (Object.keys(checklistStates).length) {
-      localStorage.setItem(
-        "ipptChecklistStates",
-        JSON.stringify(checklistStates)
-      );
+      localStorage.setItem("ipptChecklistStates", JSON.stringify(checklistStates));
     }
     if (Object.keys(uploadedFiles).length) {
-      localStorage.setItem(
-        "ipptUploadedFiles",
-        JSON.stringify(uploadedFiles)
-      );
+      localStorage.setItem("ipptUploadedFiles", JSON.stringify(uploadedFiles));
     }
     if (Object.keys(srrChecklist).length) {
-      localStorage.setItem(
-        "ipptSrrCoppaChecklist",
-        JSON.stringify(srrChecklist)
-      );
+      localStorage.setItem("ipptSrrCoppaChecklist", JSON.stringify(srrChecklist));
     }
     if (Object.keys(driveFiles).length) {
       localStorage.setItem("ipptDriveFiles", JSON.stringify(driveFiles));
@@ -1071,6 +1062,11 @@ export default function IPPTProgrammeTracker() {
               <span className="font-semibold">{summary.atRisk}</span>
             </p>
           </div>
+        </section>
+
+        {/* PLO MODULE (global card) */}
+        <section className="mb-6">
+          <IPPTPLOModule />
         </section>
 
         {/* LEGEND */}
