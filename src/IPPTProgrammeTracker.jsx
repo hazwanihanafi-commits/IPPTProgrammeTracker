@@ -1,72 +1,98 @@
-/* global google */
-import React, { useEffect, useMemo, useState } from "react";
-import IPPTPLOModule from "./components/IPPTPLOModule";
+import React, { useState, useEffect } from "react";
+import IPPTPLOModule from "./IPPTPLOModule";
 
-/* ================================
-   BASIC CONFIG
-================================ */
+/* =======================
+   CONFIG
+======================= */
+
 const PHASES = [
   { key: "q1", label: "Q1 – Penasihat Luar" },
-  { key: "q2", label: "Q2 – Curriculum Evaluation" },
+  { key: "q2", label: "Q2 – CE" },
   { key: "q3", label: "Q3 – SRR" },
   { key: "q4", label: "Q4 – Audit APP" },
 ];
 
-const STATUS_OPTIONS = ["Not started", "In progress", "Completed", "Not required"];
-
-const STATUS_STYLES = {
-  "Not started": "bg-rose-100 text-rose-700",
-  "In progress": "bg-amber-100 text-amber-700",
-  Completed: "bg-emerald-100 text-emerald-700",
-  "Not required": "bg-slate-100 text-slate-500",
+const DEFAULT_PHASE_STATE = {
+  q1: "Not started",
+  q2: "Not started",
+  q3: "Not started",
+  q4: "Not started",
 };
 
-/* ================================
-   PROGRAM LIST (FULL)
-================================ */
-import { PROGRAMS } from "./data/programs"; 
-// 🔴 PASTIKAN: programs.js export SEMUA 22 program
+/* =======================
+   PROGRAM LIST (ringkas contoh)
+   — guna list penuh anda
+======================= */
 
-/* ================================
-   SAFE DEFAULT GENERATOR
-================================ */
-function getDefaultProgrammeState() {
-  return {
-    q1: "Not started",
-    q2: "Not started",
-    q3: "Not started",
-    q4: "Not started",
-  };
+const PROGRAMS = [
+  { id: 1, name: "MSc Chemistry", owner: "PPSK", nec: "0531", pic: "Noorfatimah" },
+  { id: 2, name: "MSc Biomedicine", owner: "PPSK", nec: "0912", pic: "Rabiatul" },
+  { id: 3, name: "MSc Clinical Sciences", owner: "PPSP", nec: "0914", pic: "Hazwani" },
+  { id: 4, name: "MSc Community Medicine", owner: "PPSP", nec: "0923", pic: "Rohayu" },
+  // 👉 guna SENARAI PENUH anda di sini
+];
+
+/* =======================
+   HELPER
+======================= */
+
+function getInitialProgrammeStates() {
+  const obj = {};
+  PROGRAMS.forEach(p => {
+    obj[p.id] = { ...DEFAULT_PHASE_STATE };
+  });
+  return obj;
 }
 
-/* ================================
+/* =======================
+   TABS COMPONENT
+======================= */
+
+function ProgrammeTabs({ tabs }) {
+  const [active, setActive] = useState(tabs[0].key);
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-3 border-b">
+        {tabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActive(t.key)}
+            className={`px-3 py-1 text-sm rounded-t ${
+              active === t.key
+                ? "bg-sky-600 text-white"
+                : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="p-3 bg-slate-50 rounded">
+        {tabs.find(t => t.key === active)?.content}
+      </div>
+    </div>
+  );
+}
+
+/* =======================
    MAIN COMPONENT
-================================ */
+======================= */
+
 export default function IPPTProgrammeTracker() {
   const [programmeStates, setProgrammeStates] = useState({});
-  const [search, setSearch] = useState("");
 
-  /* ---------- LOAD STATE ---------- */
+  /* ===== INIT STATE ===== */
   useEffect(() => {
     const saved = localStorage.getItem("ipptProgrammeStates");
-
-    const base = {};
-    PROGRAMS.forEach((p) => {
-      base[p.id] = getDefaultProgrammeState();
-    });
-
     if (saved) {
-      try {
-        setProgrammeStates({ ...base, ...JSON.parse(saved) });
-      } catch {
-        setProgrammeStates(base);
-      }
+      setProgrammeStates(JSON.parse(saved));
     } else {
-      setProgrammeStates(base);
+      setProgrammeStates(getInitialProgrammeStates());
     }
   }, []);
 
-  /* ---------- AUTOSAVE ---------- */
   useEffect(() => {
     if (Object.keys(programmeStates).length > 0) {
       localStorage.setItem(
@@ -76,112 +102,90 @@ export default function IPPTProgrammeTracker() {
     }
   }, [programmeStates]);
 
-  /* ---------- FILTER ---------- */
-  const filteredPrograms = useMemo(() => {
-    const term = search.toLowerCase();
-    return PROGRAMS.filter(
-      (p) =>
-        !term ||
-        p.name.toLowerCase().includes(term) ||
-        (p.pic || "").toLowerCase().includes(term)
-    );
-  }, [search]);
+  const getProgrammeState = (id) =>
+    programmeStates[id] || { ...DEFAULT_PHASE_STATE };
 
-  /* ---------- HANDLER ---------- */
-  const updateStatus = (programmeId, phase, value) => {
-    setProgrammeStates((prev) => ({
-      ...prev,
-      [programmeId]: {
-        ...(prev[programmeId] || getDefaultProgrammeState()),
-        [phase]: value,
-      },
-    }));
-  };
+  /* ===== UI ===== */
 
-  /* ================================
-     RENDER
-  ================================ */
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <h1 className="text-2xl font-bold mb-4">
-        IPPT Programme Accreditation Tracker
+    <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <h1 className="text-2xl font-bold text-sky-700">
+        IPPT Programme Tracker (Tabs per Program)
       </h1>
 
-      <input
-        className="border px-3 py-2 rounded mb-6 w-full md:w-96"
-        placeholder="Cari program / PIC…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
-
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {filteredPrograms.map((p) => {
-          const statusObj =
-            programmeStates[p.id] || getDefaultProgrammeState();
+        {PROGRAMS.map((p) => {
+          const state = getProgrammeState(p.id);
 
           return (
             <article
               key={p.id}
-              className="bg-white border rounded-xl p-4 shadow-sm"
+              className="bg-white border rounded-2xl shadow-sm p-4"
             >
               {/* HEADER */}
               <div className="mb-3">
-                <h2 className="font-semibold">{p.name}</h2>
+                <h2 className="font-semibold text-lg">{p.name}</h2>
                 <p className="text-xs text-slate-500">
-                  {p.owner} · PIC: {p.pic || "-"}
+                  {p.owner} · NEC {p.nec} · PIC: {p.pic}
                 </p>
               </div>
 
-              {/* PHASE STATUS */}
-              <div className="space-y-2 mb-4">
-                {PHASES.map((ph) => (
-                  <div key={ph.key}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span>{ph.label}</span>
-                      <span
-                        className={`px-2 py-0.5 rounded ${STATUS_STYLES[statusObj[ph.key]]}`}
-                      >
-                        {statusObj[ph.key]}
-                      </span>
-                    </div>
-                    <div className="flex gap-1 flex-wrap">
-                      {STATUS_OPTIONS.map((s) => (
-                        <button
-                          key={s}
-                          className={`text-[10px] px-2 py-0.5 rounded border ${
-                            statusObj[ph.key] === s
-                              ? "ring-2 ring-sky-400"
-                              : "opacity-60"
-                          }`}
-                          onClick={() =>
-                            updateStatus(p.id, ph.key, s)
-                          }
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* PLO */}
-              <details className="mt-3">
-                <summary className="text-sm font-semibold cursor-pointer">
-                  PLO & Attainment
-                </summary>
-                <div className="mt-2">
-                  <IPPTPLOModule programmeId={p.id} />
-                </div>
-              </details>
+              {/* TABS */}
+              <ProgrammeTabs
+                tabs={[
+                  {
+                    key: "overview",
+                    label: "Overview",
+                    content: (
+                      <ul className="text-sm space-y-1">
+                        {PHASES.map(ph => (
+                          <li key={ph.key}>
+                            <strong>{ph.label}:</strong> {state[ph.key]}
+                          </li>
+                        ))}
+                      </ul>
+                    ),
+                  },
+                  {
+                    key: "plo",
+                    label: "PLO & Attainment",
+                    content: (
+                      <IPPTPLOModule programmeId={p.id} />
+                    ),
+                  },
+                  {
+                    key: "srr",
+                    label: "SRR Evidence",
+                    content: (
+                      <p className="text-sm">
+                        ✔ Checklist SRR COPPA (akan sambung modul Evidence Matrix)
+                      </p>
+                    ),
+                  },
+                  {
+                    key: "docs",
+                    label: "Documents",
+                    content: (
+                      <p className="text-sm">
+                        📁 Google Drive & local uploads
+                      </p>
+                    ),
+                  },
+                  {
+                    key: "cqi",
+                    label: "CQI",
+                    content: (
+                      <p className="text-sm">
+                        🔁 CQI Issues & Action Plan
+                      </p>
+                    ),
+                  },
+                ]}
+              />
             </article>
           );
         })}
       </div>
-
-      {filteredPrograms.length === 0 && (
-        <p className="text-slate-500 mt-6">Tiada program ditemui.</p>
-      )}
     </div>
   );
 }
