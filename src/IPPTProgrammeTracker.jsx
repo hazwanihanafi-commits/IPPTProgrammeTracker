@@ -2,6 +2,7 @@ Revise
 
 /* global google */
 import React, { useState, useMemo, useEffect } from "react";
+import ProgrammeTabs from "./components/ProgrammeTabs";
 import IPPTPLOModule from "./components/IPPTPLOModule";
 
 /* ============================================================
